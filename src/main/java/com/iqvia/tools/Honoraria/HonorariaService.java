@@ -66,33 +66,29 @@ public class HonorariaService {
 	private static String rootPath = System.getProperty("jboss.server.data.dir");
 
 	private static final String excelFileRootPath = rootPath + File.separator + "excelFiles" + File.separator + "checks";
+
+	private java.sql.Date normalizeDueDate(String dueDate, String context) {
+		if (dueDate == null || dueDate.trim().isEmpty()) {
+			logger.info(context + ": dueDate was blank/null; defaulting to today.");
+			return new java.sql.Date(System.currentTimeMillis());
+		}
+		try {
+			Date inDate = new SimpleDateFormat("MM/dd/yyyy").parse(dueDate.trim());
+			return new java.sql.Date(inDate.getTime());
+		} catch (ParseException e) {
+			logger.error(context + ": Error parsing date: " + dueDate + ", must be in form: MM/dd/yyyy; defaulting to today.", e);
+			return new java.sql.Date(System.currentTimeMillis());
+		}
+	}
 	
 	public HonorariaSearchResult getUnprocessedHonoraria(String fulfillmentMethod, String paymentTypeGroup, String dueDate) {
-		Date inDate;
-		java.sql.Date sqlDate = null;
-		
-		try {
-			inDate = new SimpleDateFormat("MM/dd/yyyy").parse(dueDate);
-			sqlDate = new java.sql.Date(inDate.getTime());
-		} catch (ParseException e) {
-			logger.error("getUnprocessedHonoraria: Error parsing date: " + dueDate + ", must be in form: MM/dd/yyyy", e);
-		}
-
+		java.sql.Date sqlDate = normalizeDueDate(dueDate, "getUnprocessedHonoraria");
 		return honorariaDAO.searchUnprocessed(fulfillmentMethod, paymentTypeGroup, sqlDate);
 	}
 
 	
 	public HonorariaSearchResult getEanredHonoraria(String fulfillmentMethod, String paymentTypeGroup,	String dueDate) {
-		Date inDate;
-		java.sql.Date sqlDate = null;
-		
-		try {
-			inDate = new SimpleDateFormat("MM/dd/yyyy").parse(dueDate);
-			sqlDate = new java.sql.Date(inDate.getTime());
-		} catch (ParseException e) {
-			logger.error("getEarnedHonoraria: Error parsing date: " + dueDate + ", must be in form: MM/dd/yyyy", e);
-		}
-		
+		java.sql.Date sqlDate = normalizeDueDate(dueDate, "getEarnedHonoraria");
 		return honorariaDAO.searchEarned(fulfillmentMethod, paymentTypeGroup, sqlDate);
 	}
 
@@ -100,15 +96,7 @@ public class HonorariaService {
 	// paymentTypeFilter is inFulfillmentMethod (CHECK, AMAZON)
 	// programTypeFilter is inPaymentTypeGroup (All, EDC, Survey)
 	public HonorariaSearchResult generateFulfillmentBatch(String fulfillmentMethod, String paymentTypeGroup, String dueDate, long inBusinessLineId, String inUser) {
-		Date inDate;
-		java.sql.Date sqlDate = null;
-		
-		try {
-			inDate = new SimpleDateFormat("MM/dd/yyyy").parse(dueDate);
-			sqlDate = new java.sql.Date(inDate.getTime());
-		} catch (ParseException e) {
-			logger.error("generateFulfillmentBatch: Error parsing date: " + dueDate + ", must be in form: MM/dd/yyyy", e);
-		}
+		java.sql.Date sqlDate = normalizeDueDate(dueDate, "generateFulfillmentBatch");
 		
 		// PL/SQL is: generateFulfillmentBatch(String inDisposition, java.sql.Date inDueDate, String inPaymentTypeGroup, String inFulfillmentMethod, String inUser, long inBusinessLineId)
 		return honorariaDAO.generateFulfillmentBatch(fulfillmentMethod, paymentTypeGroup, sqlDate, inUser, inBusinessLineId);
@@ -122,15 +110,7 @@ public class HonorariaService {
 			String inUser,
 			long[] businessLineIds,
 			String[] batchCutoffAmounts) {
-		Date inDate;
-		java.sql.Date sqlDate = null;
-
-		try {
-			inDate = new SimpleDateFormat("MM/dd/yyyy").parse(dueDate);
-			sqlDate = new java.sql.Date(inDate.getTime());
-		} catch (ParseException e) {
-			logger.error("generateFulfillmentBatches: Error parsing date: " + dueDate + ", must be in form: MM/dd/yyyy", e);
-		}
+		java.sql.Date sqlDate = normalizeDueDate(dueDate, "generateFulfillmentBatches");
 
 		Long[] cutoffAmounts = parseOptionalCutoffAmounts(batchCutoffAmounts);
 		boolean useCutoffArrays = cutoffAmounts != null;

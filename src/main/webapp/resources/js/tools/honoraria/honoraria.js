@@ -1,6 +1,10 @@
 const voidBtn = `<button onclick="voidCheck('~checkNo~')" class="btn btn-primary btn-sm" style="padding:0px 5px 0px 5px;font-size:10px;" type="button">VOID</button>`;
 
 var fileDropzone = null;
+var honorariaSearchInFlight = false;
+/** When true, incomplete panel stays empty until Generate completes (fulfill → batches workflow). */
+var suppressIncompleteListUntilGenerate = false;
+var pendingRefreshUnprocessedAfterEarned = false;
 const checkDropzoneOptions = {
 	dictDefaultMessage: "Drop an Excel file here or click to browse.",
 	paramName: "file", // The name that will be used to transfer the file
@@ -44,7 +48,7 @@ $(document).ready(function() {
 	if (typeof hideLoading === "function") {
 		hideLoading();
 	}
-	enableSearch();
+	enableSearchFilters();
 	checkForIncompleteBatch();
 	$(document).on("blur", "#searchResults .hon-cutoff-input", function() {
 		validateCutoffInput($(this));
@@ -176,6 +180,25 @@ function appendIncompleteBatchRow(row) {
 }
 
 // krr
+function showHonorariaException(results) {
+	if (!results || !results.exceptions || results.exceptions.length === 0) {
+		showMessage("An unexpected error occurred. Please try again.");
+		return;
+	}
+	var ex = results.exceptions[0];
+	var msg = typeof ex === "string" ? ex : (ex.message || ex.detail || JSON.stringify(ex));
+	showMessage(msg);
+}
+
+function suppressIncompletePanelForActiveBatches() {
+	suppressIncompleteListUntilGenerate = true;
+	$("#incompleteResultsTableBody").html("");
+	setIncompleteEmptyState("No incomplete batches right now.");
+	$("#incompleteStatusText").text("0 incomplete batch(es) found.");
+	$("#incompleteTableWrap").hide();
+	$("#incompleteResults").show();
+}
+
 function renderIncompleteResults(results) {
 	var hasExported = null;
 	var hasFailed = null;
@@ -184,10 +207,19 @@ function renderIncompleteResults(results) {
 
 	$("#incompleteResultsTableBody").html("");
 
+	if (suppressIncompleteListUntilGenerate) {
+		setIncompleteEmptyState("No incomplete batches right now.");
+		$("#incompleteStatusText").text("0 incomplete batch(es) found.");
+		$("#incompleteTableWrap").hide();
+		$("#incompleteResults").show();
+		enableSearchFilters();
+		return;
+	}
+
 	if (!results || results.outHasRows <= 0 || !results.rows || results.rows.length === 0) {
 		setIncompleteEmptyState("No incomplete batches right now.");
 		$("#incompleteStatusText").text("0 incomplete batch(es) found.");
-		enableSearch();
+		enableSearchFilters();
 		hideMessage();
 		return;
 	}
@@ -205,27 +237,27 @@ function renderIncompleteResults(results) {
 			continueRow = row;
 		}
 
-		if (statusCode != "FULFILL") {
+		// Post-generate only (UPDATE CHECK# / loopback) — not EARNED/PEND rows still in Batches table
+		if (isLoopbackBatchStatus(statusCode)) {
 			appendIncompleteBatchRow(row);
 			displayableCount++;
 		}
-		
-		if (displayableCount == 0) {
-			$("#incompleteResults").hide();
-		} else {
-			$("#incompleteResults").show();
-		}
-		
 	});
 
-	$("#incompleteEmptyState").removeClass("is-loading is-error").text("");
-	$("#incompleteTableWrap").show();
-	$("#incompleteStatusText").text(displayableCount + " incomplete batch(es) loaded from live data.");
+	$("#incompleteResults").show();
+	if (displayableCount === 0) {
+		$("#incompleteTableWrap").hide();
+		setIncompleteEmptyState("No incomplete batches right now.");
+		$("#incompleteStatusText").text("0 incomplete batch(es) found.");
+	} else {
+		$("#incompleteEmptyState").removeClass("is-loading is-error").text("");
+		$("#incompleteTableWrap").show();
+		$("#incompleteStatusText").text(displayableCount + " incomplete batch(es) loaded from live data.");
+	}
 
 	if (hasFailed != null) {
-		disableSearch();
 		showMessage("Batch " + hasFailed.batchId + " has failed. Please contact support or try again.");
-	} else if (continueRow != null && hasExported == null) {
+	} else if (continueRow != null && hasExported == null && !suppressIncompleteListUntilGenerate) {
 		$("#fulfillmentMethod").val(continueRow.fulfillmentMethod);
 		$("#paymentTypeGroup").val("All");
 		if (continueRow.statusCode === "FULFILL" || continueRow.statusCode === "EARNED") {
@@ -233,15 +265,9 @@ function renderIncompleteResults(results) {
 		} else {
 			searchUnprocessed();
 		}
-		disableSearch();
 		showMessage("Incomplete batch(es) exists. Please process them to enable searching for more.");
-	} else if (displayableCount > 0) {
-		disableSearch();
-		if (hasExported != null) {
-			hideMessage();
-		}
-	} else {
-		enableSearch();
+	} else if (displayableCount > 0 && hasExported != null) {
+		hideMessage();
 	}
 }
 
@@ -262,7 +288,7 @@ function checkForIncompleteBatch() {
 			console.error("checkForIncompleteBatch failed:", textStatus, jqXHR);
 			setIncompleteEmptyState("Could not load incomplete batches (" + textStatus + "). Click Refresh to try again.", true);
 			$("#incompleteStatusText").text("Live update failed.");
-			enableSearch();
+			enableSearchFilters();
 			if (typeof hideLoading === "function") {
 				hideLoading();
 			}
@@ -271,6 +297,9 @@ function checkForIncompleteBatch() {
 	
 
 function searchUnprocessed() {
+	if (honorariaSearchInFlight) {
+		return;
+	}
 	var fulfillmentMethod = $("#fulfillmentMethod").val();
 	var paymentTypeGroup = $("#paymentTypeGroup").val();
 	var dueDate = $("#dueDate").val();
@@ -278,6 +307,7 @@ function searchUnprocessed() {
 	var totalFulfillments = 0;
 	var totalAmount = 0;
 
+	honorariaSearchInFlight = true;
 	hideMessage();
 	$("#searchResults").hide();
 	$("#earnedResults").hide();	
@@ -289,54 +319,66 @@ function searchUnprocessed() {
 	if (paymentTypeGroup == "")
 		errMsg += "<li>Please select a program type.";
 	
-	if (errMsg == "") {	
+	if (errMsg == "") {
+		suppressIncompleteListUntilGenerate = false;
 		showLoading("Processing...");
-		$.getJSON('/IQVIATools/honoraria/get-unprocessed-honoraria', {fulfillmentMethod, paymentTypeGroup, dueDate}, function (results) {
-			hideLoading();
-			console.log(`searchUnprocessed(${fulfillmentMethod}, ${paymentTypeGroup}, ${dueDate}) returned:`);	
-			console.log(results);	
+		$.getJSON('/IQVIATools/honoraria/get-unprocessed-honoraria', {fulfillmentMethod, paymentTypeGroup, dueDate})
+			.done(function (results) {
+				hideLoading();
+				honorariaSearchInFlight = false;
+				console.log(`searchUnprocessed(${fulfillmentMethod}, ${paymentTypeGroup}, ${dueDate}) returned:`);	
+				console.log(results);	
 
-			if (results.exceptionCount != 0) {
-				showMessage(results.exceptions[0]);
-			} else {
-				$.each(results.summaryRows, function(i, row) {
-					$("#searchResultsTableBody").append(`<tr> 
-						<td style="width:50px;">${row.businessLineDesc}</td> 
-						<td style="width:50px;">${row.businessLineFinanceCode}</td> 
-						<td style="text-align:right;">${row.totalFulfillments.toLocaleString()}</td> 
-						<td style="text-align:right;">$${row.totalApprovedAmount.toLocaleString()}</td> 
-						${renderCutoffCell(row.businessLineId, row.totalApprovedAmount)}
-						<td><a onclick="fulfillOne(${row.businessLineId})" class="btn btn-primary" style="">FULFILL</a></td>
-						</tr>`);
-					totalFulfillments += row.totalFulfillments;
-					totalAmount += row.totalApprovedAmount;
-				});
-				
-				if (results.summaryRows.length > 1) {
-					$("#searchResultsTableBody").append(`<tr> 
-						<td colspan="2" style="text-align:right;">Total:</td> 
-						<td style="text-align:right;">${totalFulfillments.toLocaleString()}</td> 
-						<td style="text-align:right;">$${totalAmount.toLocaleString()}</td> 
-						<td></td>
-						<td><a id="fulfillAllBtn" onclick="fulfillAll()" class="btn btn-primary" style="display:none;">FULFILL ALL</a></td>
-						</tr>`);
+				if (results.exceptionCount != 0) {
+					showMessage(results.exceptions[0]);
+				} else {
+					$.each(results.summaryRows, function(i, row) {
+						$("#searchResultsTableBody").append(`<tr> 
+							<td style="width:50px;">${row.businessLineDesc}</td> 
+							<td style="width:50px;">${row.businessLineFinanceCode}</td> 
+							<td style="text-align:right;">${row.totalFulfillments.toLocaleString()}</td> 
+							<td style="text-align:right;">$${row.totalApprovedAmount.toLocaleString()}</td> 
+							${renderCutoffCell(row.businessLineId, row.totalApprovedAmount)}
+							<td><a onclick="fulfillOne(${row.businessLineId})" class="btn btn-primary" style="">FULFILL</a></td>
+							</tr>`);
+						totalFulfillments += row.totalFulfillments;
+						totalAmount += row.totalApprovedAmount;
+					});
 					
-					if (totalAmount > 0) $("#fulfillAllBtn").show();
+					if (results.summaryRows.length > 1) {
+						$("#searchResultsTableBody").append(`<tr> 
+							<td colspan="2" style="text-align:right;">Total:</td> 
+							<td style="text-align:right;">${totalFulfillments.toLocaleString()}</td> 
+							<td style="text-align:right;">$${totalAmount.toLocaleString()}</td> 
+							<td></td>
+							<td><a id="fulfillAllBtn" onclick="fulfillAll()" class="btn btn-primary" style="display:none;">FULFILL ALL</a></td>
+							</tr>`);
+						
+						if (totalAmount > 0) $("#fulfillAllBtn").show();
+					}
+					
+					if (results.summaryRows.length > 0) $("#searchResults").show();				
 				}
-				
-				if (results.summaryRows.length > 0) $("#searchResults").show();				
-			}
-
-		});
+			})
+			.fail(function(jqXHR, textStatus) {
+				console.error("searchUnprocessed failed:", textStatus, jqXHR);
+				honorariaSearchInFlight = false;
+				if (typeof hideLoading === "function") {
+					hideLoading();
+				}
+				showMessage("Search failed while loading unprocessed honoraria. Please try again.");
+			});
 	} else {
+		honorariaSearchInFlight = false;
 		showMessage(errMsg);
-	}	
-	
-	searchEarned();
+	}
 }
 
 
 function searchEarned() {
+	if (honorariaSearchInFlight) {
+		return;
+	}
 	var fulfillmentMethod = $("#fulfillmentMethod").val();
 	var paymentTypeGroup = $("#paymentTypeGroup").val();
 	var dueDate = $("#dueDate").val();
@@ -345,8 +387,10 @@ function searchEarned() {
 	var totalAmount = 0;
 	var batchIds = [];
 
-
-	$("#searchResults").hide();
+	honorariaSearchInFlight = true;
+	if (!pendingRefreshUnprocessedAfterEarned) {
+		$("#searchResults").hide();
+	}
 	$(".optCol").hide();
 	$("#earnedResultsTableBody").html("");
 	
@@ -358,62 +402,79 @@ function searchEarned() {
 	
 	if (errMsg == "") {	
 		showLoading("Searching...");
-		$.getJSON('/IQVIATools/honoraria/get-earned-honoraria', {fulfillmentMethod, paymentTypeGroup, dueDate}, function (results) {
-			hideLoading();
-			console.log(`searchEarned(${fulfillmentMethod}, ${paymentTypeGroup}, ${dueDate}) returned:`);	
-			console.log(results);	
+		$.getJSON('/IQVIATools/honoraria/get-earned-honoraria', {fulfillmentMethod, paymentTypeGroup, dueDate})
+			.done(function (results) {
+				hideLoading();
+				honorariaSearchInFlight = false;
+				console.log(`searchEarned(${fulfillmentMethod}, ${paymentTypeGroup}, ${dueDate}) returned:`);	
+				console.log(results);	
 
-			if (results.exceptionCount != 0) {
-				showMessage(results.exceptions[0]);
-			} else {
-				$.each(results.summaryRows, function(i, row) {
-					$("#earnedResultsTableBody").append(`<tr> 
-						<td style="width:20px;">${row.batchId}</td> 
-						<td style="width:50px;">${row.businessLineDesc}</td> 
-						<td style="width:50px;">${row.businessLineFinanceCode}</td> 
-						<td style="text-align:right;">${row.totalFulfillments.toLocaleString()}</td> 
-						<td style="text-align:right;">$${row.totalApprovedAmount.toLocaleString()}</td> 
-						<td><a onclick="generateFile(${row.batchId})" class="btn btn-primary" style="">GENERATE</a></td>
-						</tr>`);
-					totalFulfillments += row.totalFulfillments;
-					totalAmount += row.totalApprovedAmount;
-					batchIds.push(row.batchId);
-				});
-				
-				if (results.summaryRows.length > 1) {
-					$("#earnedResultsTableBody").append(`<tr> 
-						<td colspan="3" style="text-align:right;">Total:</td> 
-						<td style="text-align:right;">${totalFulfillments.toLocaleString()}</td> 
-						<td style="text-align:right;">$${totalAmount.toLocaleString()}</td> 
-						<td><a id="generateAllBtn" onclick="generateFiles('${batchIds}')" class="btn btn-primary" style="display:none;">GENERATE ALL</a></td>
-						</tr>`);
+				if (results.exceptionCount != 0) {
+					showMessage(results.exceptions[0]);
+				} else {
+					$.each(results.summaryRows, function(i, row) {
+						$("#earnedResultsTableBody").append(`<tr> 
+							<td style="width:20px;">${row.batchId}</td> 
+							<td style="width:50px;">${row.businessLineDesc}</td> 
+							<td style="width:50px;">${row.businessLineFinanceCode}</td> 
+							<td style="text-align:right;">${row.totalFulfillments.toLocaleString()}</td> 
+							<td style="text-align:right;">$${row.totalApprovedAmount.toLocaleString()}</td> 
+							<td><a onclick="generateFile(${row.batchId})" class="btn btn-primary" style="">GENERATE</a></td>
+							</tr>`);
+						totalFulfillments += row.totalFulfillments;
+						totalAmount += row.totalApprovedAmount;
+						batchIds.push(row.batchId);
+					});
 					
-					if (totalAmount > 0) $("#generateAllBtn").show();
+					if (results.summaryRows.length > 1) {
+						$("#earnedResultsTableBody").append(`<tr> 
+							<td colspan="3" style="text-align:right;">Total:</td> 
+							<td style="text-align:right;">${totalFulfillments.toLocaleString()}</td> 
+							<td style="text-align:right;">$${totalAmount.toLocaleString()}</td> 
+							<td><a id="generateAllBtn" onclick="generateFiles('${batchIds}')" class="btn btn-primary" style="display:none;">GENERATE ALL</a></td>
+							</tr>`);
+						
+						if (totalAmount > 0) $("#generateAllBtn").show();
+					}
+
+					
+					if (results.summaryRows.length > 0) $("#earnedResults").show();
 				}
-
-				
-				if (results.summaryRows.length > 0) $("#earnedResults").show();				
-			}
-
-		});
+				if (pendingRefreshUnprocessedAfterEarned) {
+					pendingRefreshUnprocessedAfterEarned = false;
+					honorariaSearchInFlight = false;
+					searchUnprocessed();
+				}
+			})
+			.fail(function(jqXHR, textStatus) {
+				console.error("searchEarned failed:", textStatus, jqXHR);
+				pendingRefreshUnprocessedAfterEarned = false;
+				honorariaSearchInFlight = false;
+				if (typeof hideLoading === "function") {
+					hideLoading();
+				}
+				showMessage("Search failed while loading earned honoraria. Please try again.");
+			});
 	} else {
+		honorariaSearchInFlight = false;
 		showMessage(errMsg);
-	}	
+	}
 }
 
 
 function renderCutoffCell(businessLineId, actualAmount) {
 	return `<td class="hon-cutoff-cell">
 		<div class="hon-cutoff-panel">
-			<div class="hon-cutoff-panel-heading">Cutoff (max)</div>
-			<input type="number" class="form-control hon-cutoff-input"
+			<input type="text" class="form-control hon-cutoff-input"
 				id="cutoff_${businessLineId}"
 				data-business-line-id="${businessLineId}"
 				data-actual-amount="${actualAmount}"
-				min="0" step="1" placeholder="">
+				inputmode="numeric"
+				placeholder="Optional"
+				autocomplete="off">
 			<div class="hon-cutoff-error">
-				<span class="glyphicon glyphicon-exclamation-sign"></span>
-				Enter a cutoff amount less than or equal to the actual amount.
+				<span class="hon-cutoff-error-icon">!</span>
+				<span class="hon-cutoff-error-text">Enter a cutoff amount less than or equal to the actual amount.</span>
 			</div>
 		</div>
 	</td>`;
@@ -433,13 +494,13 @@ function validateCutoffInput($input) {
 	var $panel = $input.closest(".hon-cutoff-panel");
 	var $err = $panel.find(".hon-cutoff-error");
 	$input.removeClass("has-error");
-	$err.hide();
+	$err.removeClass("is-visible");
 	if (cutoff === null) {
 		return true;
 	}
 	if (cutoff > actual) {
 		$input.addClass("has-error");
-		$err.show();
+		$err.addClass("is-visible");
 		return false;
 	}
 	return true;
@@ -476,6 +537,27 @@ function collectFulfillmentBatchArrays(businessLineId) {
 		batchCutoffAmounts.push(cutoff === null ? "" : String(cutoff));
 	});
 	return { businessLineIds: businessLineIds, batchCutoffAmounts: batchCutoffAmounts };
+}
+
+function collectAllBusinessLineIdsFromFulfillmentTable() {
+	var ids = [];
+	$("#searchResultsTableBody .hon-cutoff-input").each(function() {
+		ids.push(Number($(this).data("business-line-id")));
+	});
+	return ids;
+}
+
+function callGenerateFulfillmentBatches(req, onSuccess) {
+	$.ajax({
+		url: "/IQVIATools/honoraria/generate-fulfillment-batches",
+		data: req,
+		traditional: true,
+		dataType: "json"
+	}).done(onSuccess).fail(function(jqXHR, textStatus) {
+		hideLoading();
+		console.error("generate-fulfillment-batches failed:", textStatus, jqXHR);
+		showMessage("Fulfill failed (" + textStatus + "). Please try again.");
+	});
 }
 
 function hasAnyCutoffAmount(batchCutoffAmounts) {
@@ -515,29 +597,24 @@ function fulfillOne(businessLineId) {
 		};
 	}
 	showLoading("Fulfilling...");
-	$.getJSON(url, req, function (results) {
+	var onDone = function (results) {
 		hideLoading();
-		console.log(`fulfillOne(${fulfillmentMethod}, ${paymentTypeGroup}, ${dueDate}, ${businessLineId}) returned:`);	
-		console.log(results);	
-		
+		console.log(`fulfillOne(${fulfillmentMethod}, ${paymentTypeGroup}, ${dueDate}, ${businessLineId}) returned:`);
+		console.log(results);
 		if (results.exceptionCount != 0) {
-			showMessage(errMsg);
+			showHonorariaException(results);
 		} else {
-			$.each(results.summaryRows, function(i, row) {
-				$("#earnedResultsTableBody").append(`<tr> 
-					<td style="width:20px;">${row.batchId}</td> 
-					<td style="width:50px;">${row.businessLineDesc}</td> 
-					<td style="width:50px;">${row.businessLineFinanceCode}</td> 
-					<td style="text-align:right;">${row.totalFulfillments.toLocaleString()}</td> 
-					<td style="text-align:right;">$${row.totalApprovedAmount.toLocaleString()}</td> 
-					<td><a onclick="generateFile(${row.batchId})" class="btn btn-primary" style="">SUBMIT</a></td>
-					</tr>`);
-			});
-			
-			$("#earnedResults").show();
-			searchUnprocessed();			
+			refreshAfterFulfillment();
 		}
-	});	
+	};
+	if (useBatchesWithCutoff) {
+		callGenerateFulfillmentBatches(req, onDone);
+	} else {
+		$.getJSON(url, req, onDone).fail(function(jqXHR, textStatus) {
+			hideLoading();
+			showMessage("Fulfill failed (" + textStatus + "). Please try again.");
+		});
+	}
 }
 
 
@@ -552,37 +629,26 @@ function fulfillAll() {
 		return;
 	}
 	var collected = collectFulfillmentBatchArrays(null);
-	var req = {fulfillmentMethod, paymentTypeGroup, dueDate};
+	var req = {fulfillmentMethod: fulfillmentMethod, paymentTypeGroup: paymentTypeGroup, dueDate: dueDate};
 	if (hasAnyCutoffAmount(collected.batchCutoffAmounts)) {
 		req.businessLineIds = collected.businessLineIds;
 		req.batchCutoffAmounts = collected.batchCutoffAmounts;
+	} else {
+		req.businessLineIds = collectAllBusinessLineIdsFromFulfillmentTable();
 	}
 
 	showLoading("Fulfilling...");
 
-	$.getJSON('/IQVIATools/honoraria/generate-fulfillment-batches', req, function (results) {
+	callGenerateFulfillmentBatches(req, function (results) {
 		hideLoading();
-		console.log(`fulfillAll(${fulfillmentMethod}, ${paymentTypeGroup}, ${dueDate}) returned:`);	
-		console.log(results);	
-		
+		console.log(`fulfillAll(${fulfillmentMethod}, ${paymentTypeGroup}, ${dueDate}) returned:`);
+		console.log(results);
 		if (results.exceptionCount != 0) {
-			showMessage(errMsg);
+			showHonorariaException(results);
 		} else {
-			$.each(results.summaryRows, function(i, row) {
-				$("#earnedResultsTableBody").append(`<tr> 
-					<td style="width:20px;">${row.batchId}</td> 
-					<td style="width:50px;">${row.businessLineDesc}</td> 
-					<td style="width:50px;">${row.businessLineFinanceCode}</td> 					
-					<td style="text-align:right;">${row.totalFulfillments.toLocaleString()}</td> 
-					<td style="text-align:right;">$${row.totalApprovedAmount.toLocaleString()}</td> 
-					<td><a onclick="generateFile(${row.batchId})" class="btn btn-primary" style="">SUBMIT</a></td>
-					</tr>`);
-			});
-			
-			$("#earnedResults").show();				
-			searchUnprocessed();			
+			refreshAfterFulfillment();
 		}
-	});	
+	});
 }
 
 
@@ -592,15 +658,18 @@ function generateFile(batchId) {
 	hideMessage();
 	showLoading("Generating...");
 
-	$.getJSON('/IQVIATools/honoraria/generate-file', {batchId, dueDate}, function (results) {
+	$.getJSON('/IQVIATools/honoraria/generate-file', {batchId: batchId, dueDate: dueDate}, function (results) {
 		hideLoading();
-		console.log(results);	
-		
-		if (!results) {				
+		console.log(results);
+		if (!results) {
 			showMessage("There was a problem generating the file, batchId= " + batchId);
 		} else {
+			clearFulfillmentAndBatchPanelsAfterGenerate();
 			checkForIncompleteBatch();
 		}
+	}).fail(function(jqXHR, textStatus) {
+		hideLoading();
+		showMessage("Generate failed (" + textStatus + "), batchId=" + batchId);
 	});
 }
 
@@ -611,15 +680,24 @@ function generateFiles(batchIds) {
 	hideMessage();
 	showLoading("Generating...");
 
-	$.getJSON('/IQVIATools/honoraria/generate-files', {batchIds, dueDate}, function (results) {
+	var ids = typeof batchIds === "string" ? batchIds.split(",").map(function(s) { return s.trim(); }).filter(Boolean) : batchIds;
+	$.ajax({
+		url: "/IQVIATools/honoraria/generate-files",
+		data: { batchIds: ids, dueDate: dueDate },
+		traditional: true,
+		dataType: "json"
+	}).done(function (results) {
 		hideLoading();
-		console.log(results);	
-		
-		if (!results) {				
+		console.log(results);
+		if (!results) {
 			showMessage("There was a problem generating the files, batchIds= " + batchIds);
 		} else {
+			clearFulfillmentAndBatchPanelsAfterGenerate();
 			checkForIncompleteBatch();
 		}
+	}).fail(function(jqXHR, textStatus) {
+		hideLoading();
+		showMessage("Generate all failed (" + textStatus + ").");
 	});
 }
 
@@ -964,17 +1042,37 @@ function hideMessage() {
 	$("#messageSec").hide();
 }
 
-function disableSearch() {
-	$("#searchHonRow").removeClass("disabled");
-	$("#search-btn").addClass("disabled").css("pointer-events", "none").attr("aria-disabled", "true");	
-	$("#searchResults").addClass("disabled").css("pointer-events", "none").attr("aria-disabled", "true");	
-	$("#earnedResults").hide();	
+function disableSearchFilters() {
+	$("#search-btn").addClass("disabled").css("pointer-events", "none").attr("aria-disabled", "true");
 }
 
-function enableSearch() {
-	$("#searchHonRow").removeClass("disabled").css("pointer-events", "");
+function enableSearchFilters() {
 	$("#search-btn").removeClass("disabled").css("pointer-events", "").removeAttr("aria-disabled");
-	$("#searchResults").removeClass("disabled").css("pointer-events", "").removeAttr("aria-disabled");
+}
+
+/** @deprecated use disableSearchFilters — kept for any legacy calls */
+function disableSearch() {
+	disableSearchFilters();
+}
+
+/** @deprecated use enableSearchFilters */
+function enableSearch() {
+	enableSearchFilters();
+}
+
+function refreshAfterFulfillment() {
+	suppressIncompletePanelForActiveBatches();
+	honorariaSearchInFlight = false;
+	pendingRefreshUnprocessedAfterEarned = true;
+	searchEarned();
+}
+
+function clearFulfillmentAndBatchPanelsAfterGenerate() {
+	$("#searchResultsTableBody").html("");
+	$("#searchResults").hide();
+	$("#earnedResultsTableBody").html("");
+	$("#earnedResults").hide();
+	suppressIncompleteListUntilGenerate = false;
 }
 
 

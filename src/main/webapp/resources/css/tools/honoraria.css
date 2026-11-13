@@ -173,50 +173,114 @@
 }
 
 #searchResults .hon-cutoff-panel {
-	border: 1px solid #dce6ef;
-	border-radius: 3px;
-	overflow: hidden;
-	background: #fff;
+	display: flex;
+	flex-direction: column;
+	justify-content: flex-start;
+	gap: 8px;
+	border: 0;
+	border-radius: 0;
+	overflow: visible;
+	background: transparent;
 	min-width: 110px;
+	max-width: 100%;
+	min-height: 86px;
 }
 
 #searchResults .hon-cutoff-panel-heading {
-	color: #fff;
-	background-color: #2c4573;
-	font-size: 12px;
-	font-weight: 700;
-	padding: 4px 8px;
-	text-align: center;
+	display: none;
 }
 
 #searchResults .hon-cutoff-input {
-	border: 1px solid #ccc;
-	border-radius: 0;
+	border: 1px solid #d3d5d8;
+	border-radius: 10px;
 	box-shadow: none;
-	height: 34px;
-	font-size: 13px;
-	text-align: right;
+	height: 58px;
+	font-size: 22px;
+	line-height: 1.2;
+	padding: 12px 16px;
+	text-align: left;
 	margin-bottom: 0;
+	color: #2a2a2a;
+	background: #f4f4f4;
+	width: 100%;
+	min-width: 220px;
+	font-weight: 400;
+}
+
+#searchResults .hon-cutoff-input::placeholder {
+	color: #8b8b8b;
+	opacity: 1;
+}
+
+#searchResults .hon-cutoff-input:focus {
+	border-color: #bfc5cc;
+	box-shadow: none;
+	outline: none;
+	background: #fff;
 }
 
 #searchResults .hon-cutoff-input.has-error {
-	border-color: #a94442;
+	border-color: #d91f1f;
+	background: #fff;
+	box-shadow: none;
 }
 
 #searchResults .hon-cutoff-error {
 	display: none;
-	color: #a94442;
-	font-size: 11px;
-	line-height: 1.3;
-	padding: 4px 6px 6px;
+	align-items: center;
+	gap: 8px;
+	color: #d91f1f;
+	font-size: 16px;
+	line-height: 1.2;
+	padding: 0;
+	margin: 0;
 	text-align: left;
+	font-weight: 500;
 }
 
-#searchResults .hon-cutoff-error .glyphicon {
-	margin-right: 4px;
+#searchResults .hon-cutoff-error.is-visible {
+	display: flex;
+}
+
+#searchResults .hon-cutoff-error-icon {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: 18px;
+	height: 18px;
+	border-radius: 50%;
+	background: #fbe5e5;
+	color: #d91f1f;
+	font-size: 12px;
+	font-weight: 700;
+	line-height: 1;
+	flex-shrink: 0;
+}
+
+#searchResults .hon-cutoff-error-text {
+	white-space: normal;
 }
 
 #searchResults td.hon-cutoff-cell {
 	vertical-align: top;
 	padding: 6px;
+	height: 110px;
+}
+
+#searchResults tbody tr {
+	height: 110px;
+}
+
+#searchResults tbody td,
+#searchResults tbody th {
+	vertical-align: middle;
+}
+
+#searchResults .hon-cutoff-help {
+	margin: 10px 0 0;
+	padding: 0;
+	font-size: 13px;
+	line-height: 1.35;
+	color: #8b8b8b;
+	font-weight: 400;
 }

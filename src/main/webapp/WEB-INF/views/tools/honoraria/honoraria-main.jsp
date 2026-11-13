@@ -129,13 +129,14 @@ if ((honorariaUsers != null) && honorariaUsers.contains(userName)) {
 											<th scope="col" style="width:40px;">Finance Code</th>
 											<th scope="col" style="width:20px;">Fulfillments</th>
 											<th scope="col" style="width:20px;">Amount</th>
-											<th scope="col" style="width:120px;"></th>
+											<th scope="col" style="width:120px;">Cutoff (max)</th>
 											<th scope="col" style="width:10px;">Action</th>
 											</tr>
 										</thead>
 										<tbody id="searchResultsTableBody">
 										</tbody>
-									</table>									
+									</table>
+									<p class="hon-cutoff-help">Optional maximum amount per business line. Leave blank to fulfill the full amount.</p>
 								</div>
 							</div>
 						</div>

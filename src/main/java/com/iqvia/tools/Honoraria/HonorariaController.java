@@ -77,7 +77,10 @@ public class HonorariaController {
 
 	@RequestMapping(value = "/get-unprocessed-honoraria", method = RequestMethod.GET, produces = "application/json")
 	@ResponseBody
-	public HonorariaSearchResult getUnprocessedHonoraria(String fulfillmentMethod, String paymentTypeGroup, String dueDate) {
+	public HonorariaSearchResult getUnprocessedHonoraria(
+			@RequestParam(value = "fulfillmentMethod", required = false) String fulfillmentMethod,
+			@RequestParam(value = "paymentTypeGroup", required = false) String paymentTypeGroup,
+			@RequestParam(value = "dueDate", required = false) String dueDate) {
 		logger.info("Fetching unprocessed honoraria with filters: fulfillmentMethod=" + fulfillmentMethod + ", paymentTypeGroup=" + paymentTypeGroup + ", dueDate=" + dueDate);
 		return  honorariaService.getUnprocessedHonoraria(fulfillmentMethod, paymentTypeGroup, dueDate);
 	}
@@ -85,7 +88,10 @@ public class HonorariaController {
 	
 	@RequestMapping(value = "/get-earned-honoraria", method = RequestMethod.GET, produces = "application/json")
 	@ResponseBody
-	public HonorariaSearchResult getEarnedHonoraria(String fulfillmentMethod, String paymentTypeGroup, String dueDate) {
+	public HonorariaSearchResult getEarnedHonoraria(
+			@RequestParam(value = "fulfillmentMethod", required = false) String fulfillmentMethod,
+			@RequestParam(value = "paymentTypeGroup", required = false) String paymentTypeGroup,
+			@RequestParam(value = "dueDate", required = false) String dueDate) {
 		logger.info("Fetching earned honoraria with filters: fulfillmentMethod=" + fulfillmentMethod + ", paymentTypeGroup=" + paymentTypeGroup + ", dueDate=" + dueDate);
 		return  honorariaService.getEanredHonoraria(fulfillmentMethod, paymentTypeGroup, dueDate);
 	}
@@ -93,7 +99,11 @@ public class HonorariaController {
 	
 	@RequestMapping(value = "/generate-fulfillment-batch", method = RequestMethod.GET, produces = "application/json")
 	@ResponseBody
-	public HonorariaSearchResult generateFulfillmentBatch(String fulfillmentMethod, String paymentTypeGroup, String dueDate, long businessLineId) {
+	public HonorariaSearchResult generateFulfillmentBatch(
+			@RequestParam(value = "fulfillmentMethod", required = false) String fulfillmentMethod,
+			@RequestParam(value = "paymentTypeGroup", required = false) String paymentTypeGroup,
+			@RequestParam(value = "dueDate", required = false) String dueDate,
+			@RequestParam(value = "businessLineId") long businessLineId) {
 		Authentication auth = SecurityContextHolder.getContext().getAuthentication();
 		String userName = auth.getName();
 
@@ -104,11 +114,11 @@ public class HonorariaController {
 	@RequestMapping(value = "/generate-fulfillment-batches", method = RequestMethod.GET, produces = "application/json")
 	@ResponseBody
 	public HonorariaSearchResult generateFulfillmentBatches(
-			String fulfillmentMethod,
-			String paymentTypeGroup,
-			String dueDate,
-			@RequestParam(required = false) long[] businessLineIds,
-			@RequestParam(required = false) String[] batchCutoffAmounts) {
+			@RequestParam(value = "fulfillmentMethod", required = false) String fulfillmentMethod,
+			@RequestParam(value = "paymentTypeGroup", required = false) String paymentTypeGroup,
+			@RequestParam(value = "dueDate", required = false) String dueDate,
+			@RequestParam(value = "businessLineIds", required = false) long[] businessLineIds,
+			@RequestParam(value = "batchCutoffAmounts", required = false) String[] batchCutoffAmounts) {
 		Authentication auth = SecurityContextHolder.getContext().getAuthentication();
 		String userName = auth.getName();
 
@@ -119,7 +129,7 @@ public class HonorariaController {
 
 	@RequestMapping(value = "/generate-file", method = RequestMethod.GET, produces = "application/json")
 	@ResponseBody
-	public boolean generateFile(long batchId, String proposedFulfillmentDate) {
+	public boolean generateFile(@RequestParam(value = "batchId") long batchId, @RequestParam(value = "proposedFulfillmentDate", required = false) String proposedFulfillmentDate) {
 		Authentication auth = SecurityContextHolder.getContext().getAuthentication();
 		String userName = auth.getName();
 		return honorariaService.generateFile(batchId, userName, proposedFulfillmentDate);
@@ -128,7 +138,7 @@ public class HonorariaController {
 
 	@RequestMapping(value = "/generate-files", method = RequestMethod.GET, produces = "application/json")
 	@ResponseBody
-	public boolean generateFiles(@RequestParam String[] batchIds, String proposedFulfillmentDate) {
+	public boolean generateFiles(@RequestParam(value = "batchIds") String[] batchIds, @RequestParam(value = "proposedFulfillmentDate", required = false) String proposedFulfillmentDate) {
 		Authentication auth = SecurityContextHolder.getContext().getAuthentication();
 		String userName = auth.getName();
 		return honorariaService.generateFiles(batchIds, userName, proposedFulfillmentDate);
@@ -138,7 +148,7 @@ public class HonorariaController {
 
 	@RequestMapping(value = "/run-loopback", method = RequestMethod.GET, produces = "application/json")
 	@ResponseBody
-	public boolean runLoopback(long batchId, String orderNumber) {
+	public boolean runLoopback(@RequestParam long batchId, @RequestParam(required = false) String orderNumber) {
 		Authentication auth = SecurityContextHolder.getContext().getAuthentication();
 		String userName = auth.getName();
 		return honorariaService.runLoopback(batchId, userName, orderNumber);
@@ -147,21 +157,23 @@ public class HonorariaController {
 	
 	@RequestMapping(value = "/get-checks-by-number", method = RequestMethod.GET, produces = "application/json")
 	@ResponseBody
-	public List<CheckRepository> getChecksByNumber(String checkNo) {
+	public List<CheckRepository> getChecksByNumber(@RequestParam(required = false) String checkNo) {
 		return  honorariaService.getChecksByNumber(checkNo);
 	}
 
 	
 	@RequestMapping(value = "/get-checks-by-trxid", method = RequestMethod.GET, produces = "application/json")
 	@ResponseBody
-	public List<CheckRepository> getChecksByTargetrxId(Long trxid) {
+	public List<CheckRepository> getChecksByTargetrxId(@RequestParam(required = false) Long trxid) {
 		return  honorariaService.getChecksByTargetrxId(trxid);
 	}
 	
 	
 	@RequestMapping(value = "/get-checks-by-dates", method = RequestMethod.GET, produces = "application/json")
 	@ResponseBody
-	public List<CheckRepository> getChecksByDates(String fromDate, String toDate) {	
+	public List<CheckRepository> getChecksByDates(
+			@RequestParam(required = false) String fromDate,
+			@RequestParam(required = false) String toDate) {	
 		return honorariaService.getChecksByDates(fromDate, toDate);
 	}
 
@@ -174,7 +186,7 @@ public class HonorariaController {
 
 	@RequestMapping(value = "/get-stale-check-file-details", method = RequestMethod.GET, produces = "application/json")
 	@ResponseBody
-	public List<AdpStaleCheckFileDetail> getStaleCheckFileDetails(int fileId) {
+	public List<AdpStaleCheckFileDetail> getStaleCheckFileDetails(@RequestParam int fileId) {
 		return honorariaService.getStaleCheckFileDetails(fileId);
 	}
 
